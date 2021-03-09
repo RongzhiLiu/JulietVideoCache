@@ -1,0 +1,8 @@
+# Default ignored files
+/shelf/
+.idea
+out
+src/com/yl/metadata/Main.java
+src/com/yl/metadata/Main2.java
+src/com/yl/metadata/SocketMain.java
+metadata.iml
