@@ -1,8 +1,17 @@
 package com.yl.metadata;
 
-import java.io.*;
-import java.net.*;
-import java.util.ArrayList;
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.io.RandomAccessFile;
+import java.net.HttpURLConnection;
+import java.net.MalformedURLException;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.net.URL;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -51,12 +60,12 @@ public class ALVideoServer {
             @Override
             public void run() {
                 try {
-                    ServerSocket serverSocket = new ServerSocket(50349, 5);
+                    ServerSocket serverSocket = new ServerSocket(0, 5);
                     port = serverSocket.getLocalPort();
                     isInit = true;
                     ALUtil.LogD(TAG, "server start,port:" + port);
                     while (true) {
-                        Socket socket = serverSocket.accept();
+                        final Socket socket = serverSocket.accept();
                         socketProcessor.execute(new Runnable() {
                             @Override
                             public void run() {
@@ -101,6 +110,7 @@ public class ALVideoServer {
         Map<String, String> params = getUrlPramNameAndValue(url);
         videoID = params.get("videoid");
         String host = params.get("host");
+        String is_SSL = params.get("s");
         if (host == null || host.length() < 1) {
             socket.close();
             ALUtil.LogE(TAG, "request error,url is illegal :" + url);
@@ -110,7 +120,11 @@ public class ALVideoServer {
         heads.remove("host");
         heads.remove("Host");
         heads.put("host", host);
-        url = "http://" + host + url;
+        if ("1".equals(is_SSL)) {
+            url = "https://" + host + url;
+        }else {
+            url = "http://" + host + url;
+        }
         if (videoID == null || videoID.length() < 1) {
             ALUtil.LogE(TAG, "request error,id is illegal :" + videoID);
             socket.close();
@@ -169,21 +183,25 @@ public class ALVideoServer {
         CacheFile lastFile = null;
         RandomAccessFile file = null;
         byte[] buff = null;
-        int b;
+
         try {
             while (true) {
                 CacheFile f = findCache(videoID, startFind);
                 if (f == null) {
+                    ALUtil.LogE(TAG, "没有缓存 startFind：" + startFind);
                     break;
                 }
-                cacheLen = f.file.length() + f.offset;
-
+                long length = f.file.length();
+                cacheLen = length + f.offset;
+                ALUtil.LogE(TAG, "start length：" + cacheLen + "   " + length);
                 file = new RandomAccessFile(f.file, "rw");
+                long readLength = 0;
                 if (!hasWriteHeader && rang >= 0) {
                     file.seek(rang - f.offset);
+                    readLength += (rang - f.offset);
                 } else if (lastFile != null) {
-
                     file.seek(lastFile.offset + lastFile.file.length() - f.offset);
+                    readLength += (lastFile.offset + lastFile.file.length() - f.offset);
                 }
 
                 if (!hasWriteHeader) {
@@ -200,9 +218,14 @@ public class ALVideoServer {
                 if (buff == null) {
                     buff = new byte[1024 * 8];
                 }
+                int b;
+
                 while (((b = file.read(buff)) != -1)) {
                     outputStream.write(buff, 0, b);
+                    readLength += b;
                 }
+                cacheLen = f.offset + readLength;
+                ALUtil.LogE(TAG, "read length：" + cacheLen + "  " + readLength);
                 file.close();
                 startFind = cacheLen;
                 result.finish = cacheLen >= f.videoLength;
@@ -420,6 +443,14 @@ public class ALVideoServer {
             URL u = new URL(url);
             String host = u.getHost();
             String s = url.replace(host, "127.0.0.1:" + port);
+            if (s.contains("https://")) {
+                s = s.replace("https://", "http://");
+                if (url.contains("?")) {
+                    s = s + "&s=" + 1;
+                } else {
+                    s = s + "?s=" + 1;
+                }
+            }
             if (url.contains("?")) {
                 s = s + "&videoid=" + videoID + "&host=" + host;
             } else {
@@ -429,7 +460,6 @@ public class ALVideoServer {
         } catch (MalformedURLException e) {
             e.printStackTrace();
         }
-
         return url;
     }
 
